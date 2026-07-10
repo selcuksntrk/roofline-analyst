@@ -6,6 +6,10 @@
 #include <cstring>
 #include <iostream>
 
+#include <cmath>
+#include <iomanip>
+#include <limits>
+
 #include "benchmark_guard.hpp"
 
 int main() {
@@ -13,10 +17,12 @@ int main() {
     constexpr std::size_t bytes_per_gib = 1024ULL * bytes_per_mib;
     constexpr std::size_t buffer_size_mib = 256ULL;
     constexpr std::size_t buffer_size_bytes = buffer_size_mib * bytes_per_mib;
+    constexpr std::size_t bytes_per_gb = 1000ULL * 1000ULL * 1000ULL;
     constexpr int memory_iterations = 200;
     constexpr std::uint64_t fma_iterations = 500'000'000ULL;
     constexpr double flops_per_fma = 8.0;
     constexpr double fmas_per_iteration = 8.0;
+
 
     void* source_a = std::malloc(buffer_size_bytes);
     void* source_b = std::malloc(buffer_size_bytes);
@@ -63,11 +69,27 @@ int main() {
         memory_total_bytes / memory_elapsed_seconds /
         static_cast<double>(bytes_per_gib);
 
+    const double bandwidth_gbps =
+    memory_total_bytes / memory_elapsed_seconds /
+    static_cast<double>(bytes_per_gb);
+
     const auto* destination_bytes =
         static_cast<const unsigned char*>(destination);
     unsigned long long memory_checksum = 0;
     for (std::size_t i = 0; i < buffer_size_bytes; i += 4096) {
         memory_checksum += destination_bytes[i];
+    }
+
+    const unsigned long long expected_memory_checksum =
+    static_cast<unsigned long long>(buffer_size_bytes / 4096) *
+    (memory_iterations % 2 == 0 ? 2ULL : 1ULL);
+
+    if (memory_checksum != expected_memory_checksum) {
+        std::cerr << "memory checksum validation failed\n";
+        std::free(source_a);
+        std::free(source_b);
+        std::free(destination);
+        return 1;
     }
 
     std::free(source_a);
@@ -121,12 +143,15 @@ int main() {
     const double peak_gflops =
         total_flops / flops_elapsed_seconds / 1e9;
 
-    std::cout << "memory_elapsed_ns=" << memory_elapsed_ns << '\n';
-    std::cout << "bandwidth_gib_per_second=" << bandwidth_gib_per_second << '\n';
-    std::cout << "memory_checksum=" << memory_checksum << '\n';
-    std::cout << "flops_elapsed_ns=" << flops_elapsed_ns << '\n';
-    std::cout << "peak_gflops=" << peak_gflops << '\n';
-    std::cout << "flops_sink=" << flops_sink << '\n';
+    if (!std::isfinite(bandwidth_gbps) || !std::isfinite(peak_gflops)) {
+        std::cerr << "benchmark produced a non-finite metric\n";
+        return 1;
+    }
+
+    std::cout << std::setprecision(std::numeric_limits<double>::max_digits10)
+              << "{\"memory_bandwidth_gbps\":" << bandwidth_gbps
+              << ",\"cpu_neon_fp32_gflops\":" << peak_gflops
+              << "}\n";
 
     return 0;
 }
