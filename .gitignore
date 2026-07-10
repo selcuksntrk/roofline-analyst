@@ -17,3 +17,13 @@ __pycache__/
 # macOS / IDE
 .DS_Store
 .idea/
+/build-homebrew-release/.ninja_deps
+/build-release/.ninja_deps
+/build-homebrew-release/.ninja_log
+/build-release/.ninja_log
+/build-homebrew-release/build.ninja
+/build-release/build.ninja
+/build-homebrew-release/cmake_install.cmake
+/build-release/cmake_install.cmake
+/build-homebrew-release/roofline_hw
+/build-release/roofline_hw

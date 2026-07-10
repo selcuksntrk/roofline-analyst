@@ -6,6 +6,8 @@
 #include <cstring>
 #include <iostream>
 
+#include "benchmark_guard.hpp"
+
 int main() {
     constexpr std::size_t bytes_per_mib = 1024ULL * 1024ULL;
     constexpr std::size_t bytes_per_gib = 1024ULL * bytes_per_mib;
@@ -16,23 +18,34 @@ int main() {
     constexpr double flops_per_fma = 8.0;
     constexpr double fmas_per_iteration = 8.0;
 
-    void* source = std::malloc(buffer_size_bytes);
+    void* source_a = std::malloc(buffer_size_bytes);
+    void* source_b = std::malloc(buffer_size_bytes);
     void* destination = std::malloc(buffer_size_bytes);
 
-    if (source == nullptr || destination == nullptr) {
-        std::free(source);
+    if (source_a == nullptr || source_b == nullptr || destination == nullptr) {
+        std::free(source_a);
+        std::free(source_b);
         std::free(destination);
         std::cerr << "allocation failed\n";
         return 1;
     }
 
-    std::memset(source, 1, buffer_size_bytes);
+    std::memset(source_a, 1, buffer_size_bytes);
+    std::memset(source_b, 2, buffer_size_bytes);
     std::memset(destination, 0, buffer_size_bytes);
 
     const auto memory_start = std::chrono::steady_clock::now();
 
     for (int i = 0; i < memory_iterations; ++i) {
-        std::memcpy(destination, source, buffer_size_bytes);
+        void* current_source =
+            (i % 2 == 0) ? source_a : source_b;
+
+        std::memcpy(destination, current_source, buffer_size_bytes);
+
+        consume_copy_result(
+            static_cast<const unsigned char*>(destination),
+            buffer_size_bytes
+        );
     }
 
     const auto memory_end = std::chrono::steady_clock::now();
@@ -57,7 +70,8 @@ int main() {
         memory_checksum += destination_bytes[i];
     }
 
-    std::free(source);
+    std::free(source_a);
+    std::free(source_b);
     std::free(destination);
 
     const float32x4_t a = vdupq_n_f32(1.0001F);
