@@ -1,9 +1,10 @@
-"""Forward-hook utilities for capturing executed module shapes."""
+"""Forward-hook utilities for capturing executed module tensor metadata."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import math
 
 import torch
 from torch import Tensor, nn
@@ -11,31 +12,56 @@ from torch.utils.hooks import RemovableHandle
 
 
 @dataclass(frozen=True)
+class TensorMetadata:
+    """Shape and element-size metadata for one observed tensor."""
+
+    shape: tuple[int, ...]
+    dtype: str
+    element_size_bytes: int
+
+    @property
+    def numel(self) -> int:
+        """Return the tensor element count."""
+        return math.prod(self.shape)
+
+    @property
+    def nbytes(self) -> int:
+        """Return logical tensor storage bytes."""
+        return self.numel * self.element_size_bytes
+
+
+@dataclass(frozen=True)
 class ModuleExecution:
-    """Observed tensor shapes for one leaf-module invocation."""
+    """Observed tensor metadata for one leaf-module invocation."""
 
     module_name: str
     module_type: str
-    input_shapes: tuple[tuple[int, ...], ...]
-    output_shapes: tuple[tuple[int, ...], ...]
+    inputs: tuple[TensorMetadata, ...]
+    outputs: tuple[TensorMetadata, ...]
 
 
-def _collect_tensor_shapes(value: object) -> tuple[tuple[int, ...], ...]:
+def _collect_tensor_metadata(value: object) -> tuple[TensorMetadata, ...]:
     if isinstance(value, Tensor):
-        return (tuple(value.shape),)
+        return (
+            TensorMetadata(
+                shape=tuple(value.shape),
+                dtype=str(value.dtype),
+                element_size_bytes=value.element_size(),
+            ),
+        )
 
     if isinstance(value, tuple | list):
         return tuple(
-            shape
+            metadata
             for item in value
-            for shape in _collect_tensor_shapes(item)
+            for metadata in _collect_tensor_metadata(item)
         )
 
     if isinstance(value, dict):
         return tuple(
-            shape
+            metadata
             for item in value.values()
-            for shape in _collect_tensor_shapes(item)
+            for metadata in _collect_tensor_metadata(item)
         )
 
     return ()
@@ -55,8 +81,8 @@ def _make_forward_hook(
             ModuleExecution(
                 module_name=module_name,
                 module_type=module_type,
-                input_shapes=_collect_tensor_shapes(inputs),
-                output_shapes=_collect_tensor_shapes(output),
+                inputs=_collect_tensor_metadata(inputs),
+                outputs=_collect_tensor_metadata(output),
             )
         )
 
@@ -67,18 +93,7 @@ def capture_module_executions(
         model: nn.Module,
         example_inputs: tuple[Tensor, ...],
 ) -> tuple[ModuleExecution, ...]:
-    """Capture leaf-module tensor shapes from one inference forward pass.
-
-    Args:
-        model: PyTorch model to execute.
-        example_inputs: Positional tensor inputs for `model(*example_inputs)`.
-
-    Returns:
-        Leaf-module invocation records in forward-execution order.
-
-    Raises:
-        ValueError: If no example inputs are supplied.
-    """
+    """Capture leaf-module tensor metadata from one inference forward pass."""
     if not example_inputs:
         raise ValueError("example_inputs must contain at least one tensor")
 
