@@ -1,2 +1,5 @@
-def main() -> None:
-    print("Hello from roofline-analyst!")
+"""Roofline Analyst package."""
+
+from roofline_analyst.cli import main
+
+__all__ = ["main"]
