@@ -8,6 +8,10 @@ import math
 from roofline_analyst.hardware import HardwareLimits
 from roofline_analyst.metrics import compute_ridge_point
 
+import plotly.graph_objects as go
+
+from roofline_analyst.layer_points import LayerRooflinePoint
+
 
 @dataclass(frozen=True)
 class RooflineSegment:
@@ -79,3 +83,90 @@ def build_roofline_geometry(
         memory_segment=memory_segment,
         compute_segment=compute_segment,
     )
+
+
+def create_roofline_figure(
+        geometry: RooflineGeometry,
+        layer_points: tuple[LayerRooflinePoint, ...],
+) -> go.Figure:
+    """Create an interactive log-log roofline figure."""
+    figure = go.Figure()
+
+    figure.add_trace(
+        go.Scatter(
+            x=geometry.memory_segment.arithmetic_intensities,
+            y=geometry.memory_segment.performances_gflops,
+            mode="lines",
+            name="Memory roof",
+            line={"color": "#1f77b4", "width": 3},
+        )
+    )
+
+    figure.add_trace(
+        go.Scatter(
+            x=geometry.compute_segment.arithmetic_intensities,
+            y=geometry.compute_segment.performances_gflops,
+            mode="lines",
+            name="Compute roof",
+            line={"color": "#d62728", "width": 3},
+        )
+    )
+
+    regime_colors = {
+        "memory_bound": "#1f77b4",
+        "at_ridge": "#ff7f0e",
+        "compute_bound": "#d62728",
+    }
+
+    figure.add_trace(
+        go.Scatter(
+            x=[point.arithmetic_intensity for point in layer_points],
+            y=[point.achieved_gflops for point in layer_points],
+            mode="markers",
+            name="Supported layer invocations",
+            marker={
+                "color": [
+                    regime_colors[point.regime.value]
+                    for point in layer_points
+                ],
+                "size": 10,
+                "line": {"color": "#111111", "width": 1},
+            },
+            customdata=[
+                [
+                    point.module_name,
+                    point.module_type,
+                    point.flops,
+                    point.logical_bytes_moved,
+                    point.regime.value,
+                ]
+                for point in layer_points
+            ],
+            hovertemplate=(
+                "module=%{customdata[0]}"
+                "<br>type=%{customdata[1]}"
+                "<br>AI=%{x:.4f} FLOPs/byte"
+                "<br>achieved=%{y:.4f} GFLOPS"
+                "<br>FLOPs=%{customdata[2]}"
+                "<br>logical bytes=%{customdata[3]}"
+                "<br>regime=%{customdata[4]}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    figure.update_layout(
+        title="CPU Roofline Analysis",
+        xaxis={
+            "title": "Arithmetic Intensity (FLOPs/byte)",
+            "type": "log",
+        },
+        yaxis={
+            "title": "Achieved Performance (GFLOPS)",
+            "type": "log",
+        },
+        template="plotly_white",
+        legend={"x": 0.02, "y": 0.98},
+    )
+
+    return figure
